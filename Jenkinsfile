@@ -6,7 +6,7 @@ pipeline {
         GRADLE_LOG_OPT = '-Dorg.gradle.logging.level=info'
         NO_COMPOSITE_BUILD_OPT = '-Dno-composite-build'
         GRADLE_OPTS = "${GRADLE_LOG_OPT} ${NO_COMPOSITE_BUILD_OPT}"
-        JAVA_HOME = 'C:\\java\\jdk11'
+        JAVA_HOME = '/usr/lib/jvm/java-11-openjdk-amd64' // Adjust based on your system
     }
 
     stages {
@@ -29,10 +29,7 @@ pipeline {
 
         stage('Tag for Release') {
             when {
-                anyOf {
-                    branch 'master'
-                    branch pattern: 'release-[0-9]+\\.[0-9]+', comparator: 'REGEXP'
-                }
+                branch 'main'
             }
             steps {
                 sh './gradlew tagForRelease'
@@ -49,14 +46,8 @@ pipeline {
         }
 
         stage('Publish Docker Image') {
-            agent {
-                docker {
-                    image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170'
-                    label 'nerv-aws-docker-linux'
-                }
-            }
             when {
-                branch 'master'
+                branch 'main'
             }
             steps {
                 sh './scripts/build_docker_image.sh'
@@ -65,7 +56,7 @@ pipeline {
 
         stage('Publish Octopus Release') {
             when {
-                branch 'master'
+                branch 'main'
             }
             steps {
                 sh './scripts/create_release.sh'
@@ -74,10 +65,7 @@ pipeline {
 
         stage('Twistlock Scan') {
             when {
-                anyOf {
-                    branch 'master'
-                    branch pattern: 'release-[0-9]+\\.[0-9]+', comparator: 'REGEXP'
-                }
+                branch 'main'
             }
             steps {
                 sh './scripts/twistlock_scan.sh'
@@ -86,7 +74,7 @@ pipeline {
 
         stage('Generate Javadoc') {
             when {
-                branch 'master'
+                branch 'main'
             }
             steps {
                 sh './gradlew javadoc'
@@ -97,7 +85,7 @@ pipeline {
 
         stage('Deploy to Sandbox') {
             when {
-                branch 'master'
+                branch 'main'
             }
             steps {
                 sh './gradlew build'
@@ -107,7 +95,7 @@ pipeline {
 
         stage('Push Blame Info') {
             when {
-                branch 'master'
+                branch 'main'
             }
             steps {
                 sh './scripts/push_blame_info.sh'
