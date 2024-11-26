@@ -1,7 +1,5 @@
 pipeline {
-    agent {
-        label 'nerv-aws-docker-linux'
-    }
+    agent any
 
     environment {
         GIT_STRATEGY = 'clone'
