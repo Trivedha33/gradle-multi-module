@@ -1,0 +1,13 @@
+# Ignore build outputs
+/build/
+/.gradle/
+/out/
+
+# Ignore IDE configurations
+.idea/
+*.iml
+.vscode/
+
+# Ignore Gradle Wrapper files
+.gradle/wrapper/
+
