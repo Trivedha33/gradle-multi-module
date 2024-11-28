@@ -5,145 +5,71 @@ pipeline {
         GIT_STRATEGY = 'clone'
         GRADLE_LOG_OPT = '-Dorg.gradle.logging.level=info'
         NO_COMPOSITE_BUILD_OPT = '-Dno-composite-build'
-        GRADLE_OPTS = "${GRADLE_LOG_OPT} ${NO_COMPOSITE_BUILD_OPT}"
-        JAVA_HOME = '/usr/lib/jvm/java-11-openjdk-amd64' // Adjust based on your system
+        GRADLE_OPTS = '${GRADLE_LOG_OPT} ${NO_COMPOSITE_BUILD_OPT}'
     }
 
     stages {
-        stage('Build') {
-            when {
-                anyOf {
-                    changeRequest()
-                    expression { return env.CI_PIPELINE_SOURCE == 'push' }
-                }
-            }
+        stage('linux build') {
             steps {
-                sh './gradlew build downloadJavaAgent jacocoTestReport'
-            }
-            post {
-                success {
-                    archiveArtifacts artifacts: '.gradle/,build/libs/*.war,build/opentelemetry', allowEmptyArchive: true
-                }
+                sh '''./gradlew build downloadJavaAgent jacocoTestReport'''
             }
         }
-
-        stage('Tag for Release') {
-            when {
-                branch 'main'
-            }
+        stage('tag for release') {
             steps {
-                sh './gradlew tagForRelease'
+                sh '''./gradlew tagForRelease'''
             }
         }
-
-        stage('Publish to Artifactory') {
-            when {
-                expression { return env.CI_COMMIT_TAG != null }
-            }
+        stage('publish to artifactory') {
             steps {
-                sh './gradlew publish'
+                sh '''./gradlew publish'''
             }
         }
-
-        stage('Publish Docker Image') {
-            when {
-                branch 'main'
-            }
+        stage('publish docker image') {
             steps {
-                sh './scripts/build_docker_image.sh'
+                sh '''./scripts/build_docker_image.sh'''
             }
         }
-
-        stage('Publish Octopus Release') {
-            when {
-                branch 'main'
-            }
+        stage('publish octopus release') {
             steps {
-                sh './scripts/create_release.sh'
+                sh '''./scripts/create_release.sh'''
             }
         }
-
-        stage('Twistlock Scan') {
-            when {
-                branch 'main'
-            }
+        stage('twistlock scan') {
             steps {
-                sh './scripts/twistlock_scan.sh'
+                sh '''./scripts/twistlock_scan.sh'''
             }
         }
-
-        stage('Generate Javadoc') {
-            when {
-                branch 'main'
-            }
+        stage('pages') {
             steps {
-                sh './gradlew javadoc'
-                sh 'mv build/docs/javadoc/ public/'
-                archiveArtifacts artifacts: 'public/**/*', allowEmptyArchive: true
+                sh '''./gradlew javadoc'''
+                sh '''mv build/docs/javadoc/ public/'''
             }
         }
-
-        stage('Deploy to Sandbox') {
-            when {
-                branch 'main'
-            }
+        stage('deploy to sandbox') {
             steps {
-                sh './gradlew build'
-                sh './gradlew deployToSandbox'
+                sh '''./gradlew build'''
+                sh '''./gradlew deployToSandbox'''
             }
         }
-
-        stage('Push Blame Info') {
-            when {
-                branch 'main'
-            }
+        stage('push blame info') {
             steps {
-                sh './scripts/push_blame_info.sh'
+                sh '''./scripts/push_blame_info.sh'''
             }
         }
-
-        stage('Resource Group') {
+        stage('resource group') {
             steps {
-                script {
-                    def servers = 1
-                    def resourceGroup = env.CI_PROJECT_ID ? 
-                        "${env.CI_PROJECT_ID}-${env.BUILD_NUMBER.toInteger() % servers}" : 
-                        'default-group'
-                    
-                    writeFile file: 'resource-group.env', text: "RESOURCE_GROUP=${resourceGroup}"
-                }
+                sh '''SERVERS=1
+RESOURCE_GROUP="${CI_PROJECT_ID}-${CI_PIPELINE_ID % $SERVERS}"
+echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> resource-group.env
+'''
             }
         }
-
-        stage('Manual Deploy') {
-            when {
-                expression { return env.CI_PIPELINE_SOURCE == 'schedule' }
-            }
+        stage('publish-to-beta') {
             steps {
-                build job: 'gitlab-tableau-server',
-                      parameters: [
-                          string(name: 'PARENT_PIPELINE_ID', value: env.BUILD_ID),
-                          string(name: 'RESOURCE_GROUP', value: readFile('resource-group.env').trim())
-                      ]
+                sh '''./gradlew publish -PpublishBetaArtifactsFromTaskBranch=true'''
+                sh '''git tag v4.209.67'''
+                sh '''./scripts/build_docker_image.sh'''
             }
-        }
-
-        stage('Beta Artifacts Publish') {
-            when {
-                branch pattern: '.*'
-            }
-            steps {
-                sh './gradlew publish -PpublishBetaArtifactsFromTaskBranch=true'
-                sh 'git tag v4.209.67'
-                sh './scripts/build_docker_image.sh'
-            }
-        }
-    }
-
-    post {
-        always {
-            cleanWs()
         }
     }
 }
-
