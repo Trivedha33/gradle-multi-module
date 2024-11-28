@@ -33,10 +33,66 @@ pipeline {
                 ./gradlew tagForRelease
             }
         }
+        stage('Publish to Artifactory') {
+            when { expression { return env.GIT_TAG != null } }
+            steps {
+                ./gradlew publish
+            }
+        }
         stage('Publish Docker Image') {
             agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
             when { branch 'main' }
             steps {
+                ./scripts/build_docker_image.sh
+            }
+        }
+        stage('Publish Octopus Release') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
+            when { branch 'main' }
+            steps {
+                ./scripts/create_release.sh
+            }
+        }
+        stage('Twistlock Scan') {
+            when { branch 'main' }
+            steps {
+                ./scripts/twistlock_scan.sh
+            }
+        }
+        stage('Generate and Publish Javadoc') {
+            when { branch 'main' }
+            steps {
+                ./gradlew javadoc
+                mv build/docs/javadoc/ public/
+                archiveArtifacts artifacts: 'public/**', allowEmptyArchive: true
+            }
+        }
+        stage('Deploy to Sandbox') {
+            when { branch 'main' }
+            steps {
+                ./gradlew build
+                ./gradlew deployToSandbox
+            }
+        }
+        stage('Push Blame Info') {
+            when { branch 'main' }
+            steps {
+                ./scripts/push_blame_info.sh
+            }
+        }
+        stage('Deploy') {
+            steps {
+                build job: 'gitlab-tableau-server', parameters: [
+                    string(name: 'PARENT_PIPELINE_ID', value: "${env.BUILD_ID}"),
+                    string(name: 'RESOURCE_GROUP', value: "${env.RESOURCE_GROUP}")
+                ]
+            }
+        }
+        stage('Publish to Beta') {
+            when { branch pattern: '.*', comparator: 'REGEXP' }
+            steps {
+                ./gradlew publish -PpublishBetaArtifactsFromTaskBranch=true
+                git tag v4.209.67
                 ./scripts/build_docker_image.sh
             }
         }
