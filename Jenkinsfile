@@ -10,106 +10,6 @@ pipeline {
     }
 
     stages {
-        stage('Build') {
-            agent {
-                docker {
-                    image 'artifactory.prod.tableautools.com:6555/tableau/nerv/openjdk-docker-image:2.30.0-11'
-                    args '-u root:root'
-                }
-            }
-            steps {
-                sh './gradlew build downloadJavaAgent jacocoTestReport'
-                archiveArtifacts artifacts: '.gradle/**, build/libs/*.war, build/opentelemetry/**', allowEmptyArchive: true
-            }
-        }
-
-        stage('Tag for Release') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './gradlew tagForRelease'
-            }
-        }
-
-        stage('Publish to Artifactory') {
-            when {
-                expression { return env.GIT_TAG != null }
-            }
-            steps {
-                sh './gradlew publish'
-            }
-        }
-
-        stage('Publish Docker Image') {
-            agent {
-                docker {
-                    image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170'
-                    args '-u root:root'
-                }
-            }
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './scripts/build_docker_image.sh'
-            }
-        }
-
-        stage('Publish Octopus Release') {
-            agent {
-                docker {
-                    image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170'
-                    args '-u root:root'
-                }
-            }
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './scripts/create_release.sh'
-            }
-        }
-
-        stage('Twistlock Scan') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './scripts/twistlock_scan.sh'
-            }
-        }
-
-        stage('Generate and Publish Javadoc') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './gradlew javadoc'
-                sh 'mv build/docs/javadoc/ public/'
-                archiveArtifacts artifacts: 'public/**', allowEmptyArchive: true
-            }
-        }
-
-        stage('Deploy to Sandbox') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './gradlew build'
-                sh './gradlew deployToSandbox'
-            }
-        }
-
-        stage('Push Blame Info') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh './scripts/push_blame_info.sh'
-            }
-        }
-
         stage('Resource Group') {
             steps {
                 script {
@@ -120,7 +20,66 @@ pipeline {
                 }
             }
         }
-
+        stage('Build') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/nerv/openjdk-docker-image:2.30.0-11' args '-u root:root' } }
+            steps {
+                ./gradlew build downloadJavaAgent jacocoTestReport
+                archiveArtifacts artifacts: '.gradle/**, build/libs/*.war, build/opentelemetry/**', allowEmptyArchive: true
+            }
+        }
+        stage('Tag for Release') {
+            when { branch 'main' }
+            steps {
+                ./gradlew tagForRelease
+            }
+        }
+        stage('Publish to Artifactory') {
+            when { expression { return env.GIT_TAG != null } }
+            steps {
+                ./gradlew publish
+            }
+        }
+        stage('Publish Docker Image') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
+            when { branch 'main' }
+            steps {
+                ./scripts/build_docker_image.sh
+            }
+        }
+        stage('Publish Octopus Release') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
+            when { branch 'main' }
+            steps {
+                ./scripts/create_release.sh
+            }
+        }
+        stage('Twistlock Scan') {
+            when { branch 'main' }
+            steps {
+                ./scripts/twistlock_scan.sh
+            }
+        }
+        stage('Generate and Publish Javadoc') {
+            when { branch 'main' }
+            steps {
+                ./gradlew javadoc
+                mv build/docs/javadoc/ public/
+                archiveArtifacts artifacts: 'public/**', allowEmptyArchive: true
+            }
+        }
+        stage('Deploy to Sandbox') {
+            when { branch 'main' }
+            steps {
+                ./gradlew build
+                ./gradlew deployToSandbox
+            }
+        }
+        stage('Push Blame Info') {
+            when { branch 'main' }
+            steps {
+                ./scripts/push_blame_info.sh
+            }
+        }
         stage('Deploy') {
             steps {
                 build job: 'gitlab-tableau-server', parameters: [
@@ -129,15 +88,12 @@ pipeline {
                 ]
             }
         }
-
         stage('Publish to Beta') {
-            when {
-                branch pattern: '.*', comparator: 'REGEXP'
-            }
+            when { branch pattern: '.*', comparator: 'REGEXP' }
             steps {
-                sh './gradlew publish -PpublishBetaArtifactsFromTaskBranch=true'
-                sh 'git tag v4.209.67'
-                sh './scripts/build_docker_image.sh'
+                ./gradlew publish -PpublishBetaArtifactsFromTaskBranch=true
+                git tag v4.209.67
+                ./scripts/build_docker_image.sh
             }
         }
     }
