@@ -5,70 +5,95 @@ pipeline {
         GIT_STRATEGY = 'clone'
         GRADLE_LOG_OPT = '-Dorg.gradle.logging.level=info'
         NO_COMPOSITE_BUILD_OPT = '-Dno-composite-build'
-        GRADLE_OPTS = '${GRADLE_LOG_OPT} ${NO_COMPOSITE_BUILD_OPT}'
+        GRADLE_OPTS = "${GRADLE_LOG_OPT} ${NO_COMPOSITE_BUILD_OPT}"
+        JAVA_HOME = '/usr/lib/jvm/java-11-openjdk-amd64'
     }
 
     stages {
-        stage('linux build') {
+        stage('Resource Group') {
             steps {
-                sh '''./gradlew build downloadJavaAgent jacocoTestReport'''
+                script {
+                    def servers = 1
+                    def resourceGroup = "${env.JOB_NAME}-${env.BUILD_NUMBER % servers}"
+                    writeFile file: 'resource-group.env', text: "RESOURCE_GROUP=${resourceGroup}"
+                    archiveArtifacts artifacts: 'resource-group.env', allowEmptyArchive: true
+                }
             }
         }
-        stage('tag for release') {
+        stage('Build') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/nerv/openjdk-docker-image:2.30.0-11' args '-u root:root' } }
             steps {
-                sh '''./gradlew tagForRelease'''
+                ./gradlew build downloadJavaAgent jacocoTestReport
+                archiveArtifacts artifacts: '.gradle/**, build/libs/*.war, build/opentelemetry/**', allowEmptyArchive: true
             }
         }
-        stage('publish to artifactory') {
+        stage('Tag for Release') {
+            when { branch 'main' }
             steps {
-                sh '''./gradlew publish'''
+                ./gradlew tagForRelease
             }
         }
-        stage('publish docker image') {
+        stage('Publish to Artifactory') {
+            when { expression { return env.GIT_TAG != null } }
             steps {
-                sh '''./scripts/build_docker_image.sh'''
+                ./gradlew publish
             }
         }
-        stage('publish octopus release') {
+        stage('Publish Docker Image') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
+            when { branch 'main' }
             steps {
-                sh '''./scripts/create_release.sh'''
+                ./scripts/build_docker_image.sh
             }
         }
-        stage('twistlock scan') {
+        stage('Publish Octopus Release') {
+            agent { docker { image 'artifactory.prod.tableautools.com:6555/tableau/container-services/octopus-shared-code:0.2.170' args '-u root:root' } }
+            when { branch 'main' }
             steps {
-                sh '''./scripts/twistlock_scan.sh'''
+                ./scripts/create_release.sh
             }
         }
-        stage('pages') {
+        stage('Twistlock Scan') {
+            when { branch 'main' }
             steps {
-                sh '''./gradlew javadoc'''
-                sh '''mv build/docs/javadoc/ public/'''
+                ./scripts/twistlock_scan.sh
             }
         }
-        stage('deploy to sandbox') {
+        stage('Generate and Publish Javadoc') {
+            when { branch 'main' }
             steps {
-                sh '''./gradlew build'''
-                sh '''./gradlew deployToSandbox'''
+                ./gradlew javadoc
+                mv build/docs/javadoc/ public/
+                archiveArtifacts artifacts: 'public/**', allowEmptyArchive: true
             }
         }
-        stage('push blame info') {
+        stage('Deploy to Sandbox') {
+            when { branch 'main' }
             steps {
-                sh '''./scripts/push_blame_info.sh'''
+                ./gradlew build
+                ./gradlew deployToSandbox
             }
         }
-        stage('resource group') {
+        stage('Push Blame Info') {
+            when { branch 'main' }
             steps {
-                sh '''SERVERS=1
-RESOURCE_GROUP="${CI_PROJECT_ID}-${CI_PIPELINE_ID % $SERVERS}"
-echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> resource-group.env
-'''
+                ./scripts/push_blame_info.sh
             }
         }
-        stage('publish-to-beta') {
+        stage('Deploy') {
             steps {
-                sh '''./gradlew publish -PpublishBetaArtifactsFromTaskBranch=true'''
-                sh '''git tag v4.209.67'''
-                sh '''./scripts/build_docker_image.sh'''
+                build job: 'gitlab-tableau-server', parameters: [
+                    string(name: 'PARENT_PIPELINE_ID', value: "${env.BUILD_ID}"),
+                    string(name: 'RESOURCE_GROUP', value: "${env.RESOURCE_GROUP}")
+                ]
+            }
+        }
+        stage('Publish to Beta') {
+            when { branch pattern: '.*', comparator: 'REGEXP' }
+            steps {
+                ./gradlew publish -PpublishBetaArtifactsFromTaskBranch=true
+                git tag v4.209.67
+                ./scripts/build_docker_image.sh
             }
         }
     }
