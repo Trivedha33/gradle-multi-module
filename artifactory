@@ -1,0 +1,73 @@
+configure<ArtifactoryPluginConvention> {
+    publish {
+        // Define the Artifactory URL for publishing artifacts
+        artifactoryUrl = "http://127.0.0.1:8081/artifactory"
+        // Define the project repository to which the artifacts will be published
+        repository {
+            // Option 1 - Define the Artifactory repository key
+            repoKey = "libs-snapshot-local"
+            // Option 2 - Specify release and snapshot repositories; let the plugin decide to which one to publish
+            // releaseRepoKey = "libs-release-local"
+            // snapshotRepoKey = "libs-snapshot-local"
+ 
+            // Specify the publisher username
+            username = project.property("artifactory_user") as String
+            // Provide the publisher password
+            password = project.property("artifactory_password") as String
+ 
+            // This is an optional section (relevant only when publishIvy = true) for configuring Ivy publication.
+            ivy {
+                ivyLayout = "[organization]/[module]/ivy-[revision].xml"
+                artifactLayout = "[organization]/[module]/[revision]/[module]-[revision](-[classifier]).[ext]"
+                // Convert any dots in an [organization] layout value to path separators, similar to Maven's groupId-to-path conversion. True if not specified
+                mavenCompatible = true
+            }
+        }
+ 
+        // Optionally, you can specify global configurations. These configurations will be added for all projects instead of configuring them for each project.
+        defaults {
+            // artifactoryPublish task attributes...
+        }
+ 
+        // (default: true) Publish the generated build-info file to Artifactory
+        publishBuildInfo = false
+        // (default: 3) Number of threads that will work and deploy artifacts to Artifactory
+        forkCount = 5
+    }
+ 
+    // Optionally, configure and control the information and attributes of the generated build-info file.
+    // Alternatively, you can configure the attributes by using the `clientConfig.info` object.
+    buildInfo {
+        // Set specific build and project information for the build-info
+        buildName = "new-strange-name"
+        buildNumber = "" + Random(System.currentTimeMillis()).nextInt(20000)
+        project = "project-key"
+        // Add a dynamic property to the build-info
+        addEnvironmentProperty("test.adding.dynVar", Date().toString())
+        // Generate a copy of the build-info.json file in the following path
+        generatedBuildInfoFilePath = "/Users/gradle-example-publish/myBuildInfoCopy.json"
+        // Generate a file with all the deployed artifacts' information in the following path
+        deployableArtifactsFilePath = "/Users/gradle-example-publish/myArtifactsInBuild.json"
+    }
+ 
+    // Optionally, you can use and configure your proxy information to use in the task.
+    // Alternatively, you can configure the attributes by using the clientConfig.proxy object.
+    proxy {
+        host = "ProxyHost"
+        port = 60
+        username = "ProxyUserName"
+        password = "ProxyPassword"
+    }
+ 
+    // (default: 300 seconds) Artifactory's connection timeout (in seconds).
+    clientConfig.timeout = 600
+    // (default: 0 retries) Artifactory's connection retires
+    clientConfig.connectionRetries = 4
+    // (default: false) Set to true to skip TLS certificates verification.
+    clientConfig.insecureTls = false
+    // (default: false) Set to true to include environment variables while running the tasks
+    clientConfig.isIncludeEnvVars = true
+    // Set patterns of environment variables to include/exclude while running the tasks
+    clientConfig.envVarsExcludePatterns = "*password*,*secret*"
+    clientConfig.envVarsIncludePatterns = "*not-secret*"
+}
